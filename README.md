@@ -1,5 +1,7 @@
 # PressPNG
 
+**[⬇ Download the Windows build](https://github.com/UtkarshJoshiNtl/PressPNG/releases/latest)** (no install needed — just unzip and run `PressPNG.exe`)
+
 A small desktop application that compresses an image to a **required target
 file size** (for example "make this photo at most 500 KB"). Built with
 object-oriented C++17, a native Win32 graphical interface, and no external
