@@ -1,0 +1,6 @@
+build/
+build-win/
+build-asan/
+cmake-build-*/
+CMakeUserPresets.json
+*.Zone.Identifier
