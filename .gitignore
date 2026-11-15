@@ -1,6 +1,11 @@
 build/
 build-win/
+build-win-qt/
 build-asan/
 cmake-build-*/
 CMakeUserPresets.json
+dist-win64/
+dist-win64.zip
 *.Zone.Identifier
+*:Zone.Identifier
+presentation/
