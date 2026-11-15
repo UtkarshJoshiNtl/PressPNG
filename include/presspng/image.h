@@ -6,6 +6,8 @@
 
 namespace presspng {
 
+enum class Rotate { None, Cw90, Cw180, Cw270 };
+
 // Decoded 8-bit RGBA pixel buffer. Move-only, owns its memory (RAII).
 class Image {
 public:
@@ -33,6 +35,11 @@ public:
 
     // Box-filter resize, always derived from this image.
     Image resized(int newWidth, int newHeight) const;
+
+    // Geometry primitives. Crop uses pixel coordinates and clamps to bounds.
+    Image cropped(int x, int y, int width, int height) const;
+    Image rotated(Rotate rotate) const;
+    Image flipped(bool horizontal) const;
 
     static constexpr int kMinDimension = 16;
 

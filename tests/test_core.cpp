@@ -424,6 +424,184 @@ static void testCancelToken() {
     CHECK(second.ok);
 }
 
+static bool sameImage(const Image& a, const Image& b) {
+    if (a.width() != b.width() || a.height() != b.height()) return false;
+    for (int y = 0; y < a.height(); ++y) {
+        for (int x = 0; x < a.width(); ++x) {
+            if (a.pixel(x, y) != b.pixel(x, y)) return false;
+        }
+    }
+    return true;
+}
+
+static Image makeMarkerImage(int width, int height) {
+    Image image(width, height);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            image.setPixel(x, y, static_cast<std::uint8_t>(x * 20 + 1),
+                           static_cast<std::uint8_t>(y * 30 + 2),
+                           static_cast<std::uint8_t>(x + y), 255);
+        }
+    }
+    return image;
+}
+
+static void testImageTransforms() {
+    const Image source = makeMarkerImage(4, 3);
+
+    CHECK(source.cropped(1, 1, 2, 2).width() == 2);
+    CHECK(source.cropped(1, 1, 2, 2).height() == 2);
+    CHECK(source.cropped(1, 1, 2, 2).pixel(0, 0) == source.pixel(1, 1));
+    // Crop clamps rather than throwing when it runs off the edge.
+    CHECK(source.cropped(3, 2, 99, 99).width() == 1);
+    CHECK(source.cropped(3, 2, 99, 99).height() == 1);
+
+    const Image cw90 = source.rotated(Rotate::Cw90);
+    CHECK(cw90.width() == 3 && cw90.height() == 4);
+    CHECK(cw90.pixel(2, 0) == source.pixel(0, 0)); // top-left -> top-right
+    CHECK(sameImage(cw90.rotated(Rotate::Cw270), source));
+
+    const Image cw180 = source.rotated(Rotate::Cw180);
+    CHECK(cw180.pixel(3, 2) == source.pixel(0, 0));
+    CHECK(sameImage(cw180.rotated(Rotate::Cw180), source));
+    CHECK(sameImage(source.rotated(Rotate::None), source));
+
+    const Image flipH = source.flipped(true);
+    CHECK(flipH.pixel(0, 0) == source.pixel(3, 0));
+    CHECK(sameImage(flipH.flipped(true), source));
+
+    const Image flipV = source.flipped(false);
+    CHECK(flipV.pixel(0, 0) == source.pixel(0, 2));
+    CHECK(sameImage(flipV.flipped(false), source));
+}
+
+static void testTransformSpec() {
+    const Image source = makeMarkerImage(800, 400);
+
+    CHECK(TransformSpec{}.isIdentity());
+    TransformSpec notIdentity;
+    notIdentity.rotate = Rotate::Cw90;
+    CHECK(!notIdentity.isIdentity());
+
+    // Identity leaves the pixels untouched.
+    CHECK(sameImage(applyTransform(source, TransformSpec{}), source));
+
+    // Requested size is a ceiling; it is honoured when smaller.
+    TransformSpec shrink;
+    shrink.outputWidth = 400;
+    shrink.outputHeight = 200;
+    const Image small = applyTransform(source, shrink);
+    CHECK(small.width() == 400 && small.height() == 200);
+
+    // ...and ignored (never upscaled) when larger than the source.
+    TransformSpec grow;
+    grow.outputWidth = 1600;
+    grow.outputHeight = 800;
+    const Image big = applyTransform(source, grow);
+    CHECK(big.width() == 800 && big.height() == 400);
+
+    // A single axis keeps the aspect ratio.
+    TransformSpec halfWidth;
+    halfWidth.outputWidth = 200;
+    const Image derived = applyTransform(source, halfWidth);
+    CHECK(derived.width() == 200 && derived.height() == 100);
+
+    // Normalized crop is relative to the source.
+    TransformSpec crop;
+    crop.cropX = 0.25;
+    crop.cropY = 0.5;
+    crop.cropW = 0.5;
+    crop.cropH = 0.5;
+    const Image cropped = applyTransform(source, crop);
+    CHECK(cropped.width() == 400 && cropped.height() == 200);
+    CHECK(cropped.pixel(0, 0) == source.pixel(200, 200));
+}
+
+static void testEstimateMatchesCompress() {
+    const fs::path dir = testDir();
+    const fs::path input = dir / "estimate_input.png";
+    writeBytes(input, PngCodec().encode(makeTestImage(640, 480), EncodeOptions{}));
+
+    CompressionRequest request;
+    request.input = input;
+    request.targetBytes = 30000;
+    request.format = UserFormat::Jpeg;
+
+    Compressor compressor;
+    const EstimateResult estimate = compressor.estimate(request);
+    CHECK(estimate.ok);
+    CHECK(!estimate.bytes.empty());
+    CHECK(estimate.outputBytes == estimate.bytes.size());
+    CHECK(estimate.targetMet);
+    CHECK(estimate.outputBytes <= 30000u);
+
+    // The estimate writes nothing...
+    CHECK(!fs::exists(dir / "estimate_input_compressed.jpg"));
+
+    // ...and predicts the real run exactly.
+    const CompressionResult real = compressor.compress(request);
+    CHECK(real.ok);
+    CHECK(real.outputBytes == estimate.outputBytes);
+    CHECK(real.quality == estimate.quality);
+
+    // The estimated bytes decode back to a real image.
+    const Image decoded = ImageLoader::decode(estimate.bytes);
+    CHECK(decoded.width() == 640 && decoded.height() == 480);
+}
+
+static void testCompressRespectsResolution() {
+    const fs::path dir = testDir();
+    const fs::path input = dir / "resize_input.png";
+    writeBytes(input, PngCodec().encode(makeTestImage(800, 600), EncodeOptions{}));
+
+    CompressionRequest request;
+    request.input = input;
+    request.targetBytes = 400000; // generous, so quality alone fits
+    request.format = UserFormat::Jpeg;
+    request.transform.outputWidth = 400;
+    request.transform.outputHeight = 300;
+
+    Compressor compressor;
+    const CompressionResult result = compressor.compress(request);
+    CHECK(result.ok);
+    CHECK(result.scale < 0.6 && result.scale > 0.4); // ~0.5, no extra downscale
+
+    const Image decoded = ImageLoader::decode(ImageLoader::readFile(result.outputPath));
+    CHECK(decoded.width() == 400 && decoded.height() == 300);
+
+    // Requesting an upscale is a no-op, not a blur.
+    CompressionRequest bigger;
+    bigger.input = input;
+    bigger.targetBytes = 400000;
+    bigger.format = UserFormat::Jpeg;
+    bigger.transform.outputWidth = 1600;
+    bigger.transform.outputHeight = 1200;
+    const CompressionResult same = compressor.compress(bigger);
+    CHECK(same.ok);
+    const Image kept = ImageLoader::decode(ImageLoader::readFile(same.outputPath));
+    CHECK(kept.width() == 800 && kept.height() == 600);
+}
+
+static void testKeepFastPathSkippedWhenTransforming() {
+    const fs::path dir = testDir();
+    const fs::path input = dir / "small_transform.png";
+    writeBytes(input, PngCodec().encode(makeTestImage(64, 64), EncodeOptions{}));
+
+    CompressionRequest request;
+    request.input = input;
+    request.targetBytes = 1000000; // source already far below
+    request.format = UserFormat::Keep;
+    request.transform.outputWidth = 32;
+    request.transform.outputHeight = 32;
+
+    Compressor compressor;
+    const CompressionResult result = compressor.compress(request);
+    CHECK(result.ok);
+    CHECK(result.outputBytes != result.inputBytes); // re-encoded, not copied
+    const Image decoded = ImageLoader::decode(ImageLoader::readFile(result.outputPath));
+    CHECK(decoded.width() == 32 && decoded.height() == 32);
+}
+
 int main() {
     std::error_code ec;
     fs::remove_all(testDir(), ec);
@@ -446,6 +624,11 @@ int main() {
     testPreviewBytesSource();
     testPreviewErrors();
     testCancelToken();
+    testImageTransforms();
+    testTransformSpec();
+    testEstimateMatchesCompress();
+    testCompressRespectsResolution();
+    testKeepFastPathSkippedWhenTransforming();
 
     std::cout << (g_checks - g_failures) << "/" << g_checks
               << " checks passed\n";

@@ -95,4 +95,76 @@ Image Image::resized(int newWidth, int newHeight) const {
     return out;
 }
 
+Image Image::cropped(int x, int y, int width, int height) const {
+    if (empty()) {
+        throw CompressionError(ErrorCode::BadRequest, "cannot crop an empty image");
+    }
+    const int x0 = std::max(0, std::min(x, width_ - 1));
+    const int y0 = std::max(0, std::min(y, height_ - 1));
+    const int w = std::min(width, width_ - x0);
+    const int h = std::min(height, height_ - y0);
+    if (w <= 0 || h <= 0) {
+        throw CompressionError(ErrorCode::BadRequest, "crop is outside the image");
+    }
+
+    Image out(w, h);
+    for (int row = 0; row < h; ++row) {
+        const std::size_t src = (static_cast<std::size_t>(y0 + row) * width_ + x0) * 4u;
+        const std::size_t dst = static_cast<std::size_t>(row) * w * 4u;
+        std::copy_n(pixels_.data() + src, static_cast<std::size_t>(w) * 4u,
+                    out.pixels() + dst);
+    }
+    return out;
+}
+
+Image Image::rotated(Rotate rotate) const {
+    if (empty()) {
+        throw CompressionError(ErrorCode::BadRequest, "cannot rotate an empty image");
+    }
+    if (rotate == Rotate::None) {
+        Image copy(width_, height_);
+        copy.pixels_ = pixels_;
+        return copy;
+    }
+
+    const bool quarter = rotate == Rotate::Cw90 || rotate == Rotate::Cw270;
+    const int outW = quarter ? height_ : width_;
+    const int outH = quarter ? width_ : height_;
+    Image out(outW, outH);
+
+    for (int dy = 0; dy < outH; ++dy) {
+        for (int dx = 0; dx < outW; ++dx) {
+            int sx = 0;
+            int sy = 0;
+            switch (rotate) {
+                case Rotate::Cw90:  sx = dy;             sy = height_ - 1 - dx; break;
+                case Rotate::Cw180: sx = width_ - 1 - dx; sy = height_ - 1 - dy; break;
+                case Rotate::Cw270: sx = width_ - 1 - dy; sy = dx;             break;
+                case Rotate::None:  break;
+            }
+            const std::size_t si = (static_cast<std::size_t>(sy) * width_ + sx) * 4u;
+            const std::size_t di = (static_cast<std::size_t>(dy) * outW + dx) * 4u;
+            std::copy_n(pixels_.data() + si, 4u, out.pixels() + di);
+        }
+    }
+    return out;
+}
+
+Image Image::flipped(bool horizontal) const {
+    if (empty()) {
+        throw CompressionError(ErrorCode::BadRequest, "cannot flip an empty image");
+    }
+    Image out(width_, height_);
+    for (int y = 0; y < height_; ++y) {
+        const int sy = horizontal ? y : height_ - 1 - y;
+        const std::size_t row = static_cast<std::size_t>(sy) * width_;
+        for (int x = 0; x < width_; ++x) {
+            const int sx = horizontal ? width_ - 1 - x : x;
+            std::copy_n(pixels_.data() + (row + sx) * 4u, 4u,
+                        out.pixels() + (static_cast<std::size_t>(y) * width_ + x) * 4u);
+        }
+    }
+    return out;
+}
+
 } // namespace presspng

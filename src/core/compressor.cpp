@@ -3,18 +3,18 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <string>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #include "presspng/codec_factory.h"
 #include "presspng/errors.h"
-#include "presspng/format_bytes.h"
 #include "presspng/image_loader.h"
 #include "presspng/target_size_solver.h"
+#include "presspng/transform.h"
 
 namespace presspng {
-
-namespace fs = std::filesystem;
 
 namespace {
 
@@ -51,6 +51,107 @@ fs::path uniqueOutputPath(const fs::path& directory,
     return candidate;
 }
 
+// Everything compress() and estimate() have in common: read, sniff, decode,
+// transform, solve. Throws CompressionError; callers catch.
+struct PipelineOutcome {
+    bool targetMet = false;
+    bool copiedUnchanged = false;
+    std::uint64_t inputBytes = 0;
+    std::vector<std::uint8_t> bytes;
+    std::string extension;
+    EncodedFormat encodedFormat = EncodedFormat::Png;
+    int quality = 0;
+    double scale = 1.0;
+    std::string message;
+};
+
+PipelineOutcome runPipeline(const ISizeSolver& solver,
+                            const CompressionRequest& request,
+                            const Image* preloaded,
+                            const Compressor::ProgressFn& progress,
+                            const CancelToken* cancel) {
+    if (request.targetBytes == 0) {
+        throw CompressionError(ErrorCode::BadRequest,
+                               "target size must be greater than zero");
+    }
+
+    auto report = [&](const std::string& text) {
+        if (progress) {
+            progress(text);
+        }
+    };
+
+    PipelineOutcome out;
+    report("Reading file...");
+    const std::vector<std::uint8_t> raw = ImageLoader::readFile(request.input);
+    out.inputBytes = raw.size();
+    const InputFormat inputFormat = ImageLoader::sniff(raw);
+
+    const auto fastSelection = CodecFactory::create(request.format, inputFormat);
+
+    // Fast path: already small enough, original wanted, no geometry change.
+    if (request.format == UserFormat::Keep && !raw.empty() &&
+        raw.size() <= request.targetBytes && !fastSelection.fellBack &&
+        request.transform.isIdentity()) {
+        report("Already within target size - copying unchanged.");
+        out.targetMet = true;
+        out.copiedUnchanged = true;
+        out.bytes = raw;
+        out.extension = fastSelection.codec->extension();
+        out.encodedFormat = mappedFormat(inputFormat);
+        out.scale = 1.0;
+        out.message = "already within target size - copied unchanged";
+        return out;
+    }
+
+    report("Decoding image...");
+    Image decoded;
+    const Image* base = preloaded;
+    if (base == nullptr) {
+        decoded = ImageLoader::decode(raw);
+        base = &decoded;
+    }
+
+    if (cancel != nullptr && cancel->cancelled()) {
+        throw CompressionError(ErrorCode::Cancelled, "cancelled by user");
+    }
+
+    // The solver only reads, so an untransformed image is passed through
+    // without a copy; a transform produces a fresh one.
+    Image transformed;
+    const Image* working = base;
+    if (!request.transform.isIdentity()) {
+        report("Applying transform...");
+        transformed = applyTransform(*base, request.transform);
+        working = &transformed;
+    }
+
+    CodecFactory::Selection selection =
+        CodecFactory::create(request.format, inputFormat);
+
+    SolvedImage solved = solver.solve(
+        *working, *selection.codec, request.targetBytes, report, cancel);
+
+    out.targetMet = solved.targetMet;
+    out.bytes = std::move(solved.bytes);
+    out.extension = selection.codec->extension();
+    out.encodedFormat = selection.resolved;
+    out.quality = solved.options.quality;
+    out.scale = static_cast<double>(working->width()) / base->width() * solved.scale;
+    out.message = solved.message;
+    if (selection.fellBack && selection.fallbackNote) {
+        out.message = std::string(selection.fallbackNote) + "; " + out.message;
+    }
+    return out;
+}
+
+int elapsedMsSince(const std::chrono::steady_clock::time_point& start) {
+    return static_cast<int>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start)
+            .count());
+}
+
 } // namespace
 
 Compressor::Compressor(std::unique_ptr<ISizeSolver> solver)
@@ -71,15 +172,8 @@ CompressionResult Compressor::compress(const CompressionRequest& request,
     };
 
     try {
-        if (request.targetBytes == 0) {
-            throw CompressionError(ErrorCode::BadRequest,
-                                   "target size must be greater than zero");
-        }
-
-        report("Reading file...");
-        const std::vector<std::uint8_t> raw = ImageLoader::readFile(request.input);
-        result.inputBytes = raw.size();
-        const InputFormat inputFormat = ImageLoader::sniff(raw);
+        const PipelineOutcome outcome =
+            runPipeline(*solver_, request, nullptr, progress, cancel);
 
         const fs::path directory = request.outputDirectory.empty()
                                        ? request.input.parent_path()
@@ -87,71 +181,28 @@ CompressionResult Compressor::compress(const CompressionRequest& request,
         fs::path stem = request.input.stem();
         stem += "_compressed";
 
-        const auto fastSelection = CodecFactory::create(request.format, inputFormat);
-
-        // Fast path: already small enough and the user wants the original kept.
-        if (request.format == UserFormat::Keep && !raw.empty() &&
-            raw.size() <= request.targetBytes && !fastSelection.fellBack) {
-            report("Already within target size - copying unchanged.");
-            const std::string extension = fastSelection.codec->extension();
-            const fs::path output = request.outputPath.empty()
-                                        ? uniqueOutputPath(directory, stem, extension)
-                                        : request.outputPath;
-            ImageLoader::writeFile(output, raw);
-
-            result.ok = true;
-            result.targetMet = true;
-            result.outputPath = output;
-            result.outputBytes = raw.size();
-            result.reductionPercent = 0.0;
-            result.encodedFormat = mappedFormat(inputFormat);
-            result.scale = 1.0;
-            result.message = "already within target size - copied unchanged";
-            report(result.message);
-            result.elapsedMs = static_cast<int>(
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - started)
-                    .count());
-            return result;
-        }
-
-        report("Decoding image...");
-        Image image = ImageLoader::decode(raw);
-
-        if (cancel != nullptr && cancel->cancelled()) {
-            throw CompressionError(ErrorCode::Cancelled, "cancelled by user");
-        }
-
-        CodecFactory::Selection selection =
-            CodecFactory::create(request.format, inputFormat);
-
-        SolvedImage solved = solver_->solve(
-            image, *selection.codec, request.targetBytes, report, cancel);
-
-        report("Writing output...");
         const fs::path output = request.outputPath.empty()
-                                    ? uniqueOutputPath(directory, stem, selection.codec->extension())
+                                    ? uniqueOutputPath(directory, stem, outcome.extension)
                                     : request.outputPath;
-        ImageLoader::writeFile(output, solved.bytes);
+        if (!outcome.copiedUnchanged) {
+            report("Writing output...");
+        }
+        ImageLoader::writeFile(output, outcome.bytes);
 
         result.ok = true;
-        result.targetMet = solved.targetMet;
+        result.targetMet = outcome.targetMet;
         result.outputPath = output;
-        result.outputBytes = solved.bytes.size();
-        result.encodedFormat = selection.resolved;
-        result.quality = solved.options.quality;
-        result.scale = solved.scale;
+        result.inputBytes = outcome.inputBytes;
+        result.outputBytes = outcome.bytes.size();
+        result.encodedFormat = outcome.encodedFormat;
+        result.quality = outcome.quality;
+        result.scale = outcome.scale;
         result.reductionPercent =
-            result.inputBytes > 0
+            outcome.inputBytes > 0
                 ? 100.0 * (1.0 - static_cast<double>(result.outputBytes) /
-                                     static_cast<double>(result.inputBytes))
+                                     static_cast<double>(outcome.inputBytes))
                 : 0.0;
-
-        result.message = solved.message;
-        if (selection.fellBack && selection.fallbackNote) {
-            result.message =
-                std::string(selection.fallbackNote) + "; " + result.message;
-        }
+        result.message = outcome.message;
         report(result.message);
     } catch (const CompressionError& error) {
         result.ok = false;
@@ -162,10 +213,57 @@ CompressionResult Compressor::compress(const CompressionRequest& request,
         result.message = std::string("unexpected error: ") + error.what();
     }
 
-    result.elapsedMs = static_cast<int>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - started)
-            .count());
+    result.elapsedMs = elapsedMsSince(started);
+    return result;
+}
+
+EstimateResult Compressor::estimate(const CompressionRequest& request,
+                                    const CancelToken* cancel) const {
+    EstimateResult result;
+    try {
+        PipelineOutcome outcome = runPipeline(*solver_, request, nullptr, nullptr, cancel);
+        result.ok = true;
+        result.targetMet = outcome.targetMet;
+        result.inputBytes = outcome.inputBytes;
+        result.outputBytes = outcome.bytes.size();
+        result.encodedFormat = outcome.encodedFormat;
+        result.quality = outcome.quality;
+        result.scale = outcome.scale;
+        result.bytes = std::move(outcome.bytes);
+        result.message = outcome.message;
+    } catch (const CompressionError& error) {
+        result.ok = false;
+        result.message = error.what();
+    } catch (const std::exception& error) {
+        result.ok = false;
+        result.message = std::string("unexpected error: ") + error.what();
+    }
+    return result;
+}
+
+EstimateResult Compressor::estimate(const Image& source,
+                                    const CompressionRequest& request,
+                                    const CancelToken* cancel) const {
+    EstimateResult result;
+    try {
+        PipelineOutcome outcome =
+            runPipeline(*solver_, request, &source, nullptr, cancel);
+        result.ok = true;
+        result.targetMet = outcome.targetMet;
+        result.inputBytes = outcome.inputBytes;
+        result.outputBytes = outcome.bytes.size();
+        result.encodedFormat = outcome.encodedFormat;
+        result.quality = outcome.quality;
+        result.scale = outcome.scale;
+        result.bytes = std::move(outcome.bytes);
+        result.message = outcome.message;
+    } catch (const CompressionError& error) {
+        result.ok = false;
+        result.message = error.what();
+    } catch (const std::exception& error) {
+        result.ok = false;
+        result.message = std::string("unexpected error: ") + error.what();
+    }
     return result;
 }
 

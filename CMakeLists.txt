@@ -10,6 +10,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(PRESSPNG_WERROR "Treat warnings as errors" OFF)
+option(PRESSPNG_QT_GUI "Build the Qt 6 GUI" ON)
+option(PRESSPNG_WIN32_GUI "Build the legacy Win32 GUI" ON)
 
 # ---------------------------------------------------------------- core
 set(PRESSPNG_CORE_SOURCES
@@ -19,6 +21,7 @@ set(PRESSPNG_CORE_SOURCES
     src/core/codec_factory.cpp
     src/core/target_size_solver.cpp
     src/core/preview.cpp
+    src/core/transform.cpp
     src/core/qoi.cpp
     src/core/compressor.cpp
     src/core/format_bytes.cpp
@@ -64,13 +67,50 @@ target_link_libraries(presspng-tests PRIVATE presspng_core)
 add_test(NAME core COMMAND presspng-tests)
 
 # ---------------------------------------------------------------- gui
-if(WIN32)
-    add_executable(PressPNG WIN32 src/gui/win_main.cpp src/gui/registry_settings_store.cpp)
-    target_link_libraries(PressPNG PRIVATE presspng_core comdlg32 shell32 comctl32)
-    target_compile_definitions(PressPNG PRIVATE
+# Qt is the primary front-end. It is optional so the core still builds on
+# machines without Qt; the Win32 GUI remains available as a fallback.
+if(PRESSPNG_QT_GUI)
+    find_package(Qt6 QUIET COMPONENTS Widgets)
+    if(NOT Qt6_FOUND)
+        message(WARNING "Qt6 Widgets not found - disabling PRESSPNG_QT_GUI")
+        set(PRESSPNG_QT_GUI OFF)
+    endif()
+endif()
+
+if(PRESSPNG_QT_GUI)
+    set(PRESSPNG_QT_SOURCES
+        src/gui/qt/main.cpp
+        src/gui/qt/main_window.cpp
+        src/gui/qt/preview_view.cpp
+        src/gui/qt/worker.cpp
+        src/gui/qt/theme.cpp
+        src/gui/qt/icons.cpp
+        src/gui/qt/image_utils.cpp
+        src/gui/qt/gui_types.cpp
+        src/gui/qt/qt_settings_store.cpp
+    )
+
+    qt_standard_project_setup()
+    qt_add_executable(PressPNG WIN32 ${PRESSPNG_QT_SOURCES})
+    target_include_directories(PressPNG
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/gui/qt)
+    target_link_libraries(PressPNG PRIVATE presspng_core Qt6::Widgets)
+    if(MSVC)
+        target_compile_options(PressPNG PRIVATE /W4)
+    else()
+        target_compile_options(PressPNG PRIVATE -Wall -Wextra)
+    endif()
+endif()
+
+if(WIN32 AND PRESSPNG_WIN32_GUI)
+    add_executable(PressPNG-win32 WIN32
+        src/gui/win_main.cpp src/gui/registry_settings_store.cpp)
+    target_link_libraries(PressPNG-win32 PRIVATE
+        presspng_core comdlg32 shell32 comctl32)
+    target_compile_definitions(PressPNG-win32 PRIVATE
         UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
     if(MINGW)
-        target_link_options(PressPNG PRIVATE -static -municode)
+        target_link_options(PressPNG-win32 PRIVATE -static -municode)
     endif()
 endif()
 

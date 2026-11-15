@@ -6,6 +6,7 @@
 
 #include "presspng/compression_request.h"
 #include "presspng/compression_result.h"
+#include "presspng/estimate_result.h"
 #include "presspng/size_solver.h"
 
 namespace presspng {
@@ -21,6 +22,17 @@ public:
     CompressionResult compress(const CompressionRequest& request,
                                ProgressFn progress = nullptr,
                                const CancelToken* cancel = nullptr) const;
+
+    // Runs the same pipeline as compress() but writes nothing. Used for
+    // live target-size previews.
+    EstimateResult estimate(const CompressionRequest& request,
+                            const CancelToken* cancel = nullptr) const;
+
+    // Same, but reuses an already-decoded source (the UI keeps one around
+    // for display, so this avoids decoding the file twice).
+    EstimateResult estimate(const Image& source,
+                            const CompressionRequest& request,
+                            const CancelToken* cancel = nullptr) const;
 
 private:
     std::unique_ptr<ISizeSolver> solver_;

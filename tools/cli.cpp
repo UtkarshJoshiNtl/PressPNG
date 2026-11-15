@@ -24,6 +24,10 @@ void printUsage() {
         "  -s, --size <N>[KB|MB]   target file size (default unit: KB)\n"
         "  -f, --format <fmt>      keep | jpeg | png | qoi   (default: keep)\n"
         "  -o, --output <dir>      output directory (default: next to input)\n"
+        "      --resize <WxH>      cap output dimensions (never upscales)\n"
+        "      --crop <x,y,w,h>    crop as fractions of the image (0..1)\n"
+        "      --rotate <90|180|270>   rotate clockwise\n"
+        "      --flip <h|v|both>   mirror horizontally / vertically\n"
         "  -q, --quiet             no progress output\n"
         "  -h, --help              show this help\n"
         "\n"
@@ -62,6 +66,33 @@ bool parseSize(const std::string& text, std::uint64_t& bytes) {
     return true;
 }
 
+// Splits on a single separator and parses each part as a double.
+bool parseDoubles(const std::string& text, char separator,
+                  std::vector<double>& out, std::size_t expected) {
+    out.clear();
+    std::size_t start = 0;
+    while (true) {
+        const std::size_t end = text.find(separator, start);
+        const std::string part =
+            text.substr(start, end == std::string::npos ? std::string::npos
+                                                        : end - start);
+        if (part.empty()) {
+            return false;
+        }
+        char* stop = nullptr;
+        const double value = std::strtod(part.c_str(), &stop);
+        if (stop == part.c_str() || *stop != '\0') {
+            return false;
+        }
+        out.push_back(value);
+        if (end == std::string::npos) {
+            break;
+        }
+        start = end + 1;
+    }
+    return out.size() == expected;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -70,6 +101,7 @@ int main(int argc, char** argv) {
     std::string outputDir;
     std::uint64_t targetBytes = 0;
     bool quiet = false;
+    presspng::TransformSpec transform;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -95,6 +127,57 @@ int main(int argc, char** argv) {
                 return 1;
             }
             outputDir = argv[++i];
+        } else if (arg == "--resize") {
+            std::vector<double> parts;
+            if (i + 1 >= argc || !parseDoubles(argv[++i], 'x', parts, 2)) {
+                std::cerr << "error: --resize expects WxH (e.g. 1920x1080)\n";
+                return 1;
+            }
+            transform.outputWidth = static_cast<int>(parts[0]);
+            transform.outputHeight = static_cast<int>(parts[1]);
+        } else if (arg == "--crop") {
+            std::vector<double> parts;
+            if (i + 1 >= argc || !parseDoubles(argv[++i], ',', parts, 4)) {
+                std::cerr << "error: --crop expects x,y,w,h fractions\n";
+                return 1;
+            }
+            transform.cropX = parts[0];
+            transform.cropY = parts[1];
+            transform.cropW = parts[2];
+            transform.cropH = parts[3];
+        } else if (arg == "--rotate") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: --rotate needs an angle\n";
+                return 1;
+            }
+            const std::string angle = argv[++i];
+            if (angle == "90") {
+                transform.rotate = presspng::Rotate::Cw90;
+            } else if (angle == "180") {
+                transform.rotate = presspng::Rotate::Cw180;
+            } else if (angle == "270") {
+                transform.rotate = presspng::Rotate::Cw270;
+            } else {
+                std::cerr << "error: --rotate must be 90, 180 or 270\n";
+                return 1;
+            }
+        } else if (arg == "--flip") {
+            if (i + 1 >= argc) {
+                std::cerr << "error: --flip needs h, v or both\n";
+                return 1;
+            }
+            const std::string axis = argv[++i];
+            if (axis == "h") {
+                transform.flipH = true;
+            } else if (axis == "v") {
+                transform.flipV = true;
+            } else if (axis == "both") {
+                transform.flipH = true;
+                transform.flipV = true;
+            } else {
+                std::cerr << "error: --flip must be h, v or both\n";
+                return 1;
+            }
         } else if (!arg.empty() && arg[0] == '-') {
             std::cerr << "error: unknown option " << arg << "\n";
             return 1;
@@ -129,6 +212,7 @@ int main(int argc, char** argv) {
     request.outputDirectory = outputDir;
     request.targetBytes = targetBytes;
     request.format = format;
+    request.transform = transform;
 
     presspng::Compressor compressor;
     bool anyNotMet = false;

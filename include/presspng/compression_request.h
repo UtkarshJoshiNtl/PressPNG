@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "presspng/codec.h"
+#include "presspng/transform.h"
 
 namespace presspng {
 
@@ -13,6 +14,7 @@ struct CompressionRequest {
     std::filesystem::path outputPath;      // optional exact destination chosen by the user
     std::uint64_t targetBytes = 0;
     UserFormat format = UserFormat::Keep;
+    TransformSpec transform;
 };
 
 } // namespace presspng
