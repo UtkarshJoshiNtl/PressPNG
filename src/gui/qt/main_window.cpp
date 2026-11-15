@@ -60,6 +60,7 @@ presspng::UserFormat formatFromIndex(int index) {
         case 1: return presspng::UserFormat::Jpeg;
         case 2: return presspng::UserFormat::Png;
         case 3: return presspng::UserFormat::Qoi;
+        case 4: return presspng::UserFormat::Ppm;
         default: return presspng::UserFormat::Keep;
     }
 }
@@ -69,6 +70,7 @@ int indexFromFormat(presspng::UserFormat format) {
         case presspng::UserFormat::Jpeg: return 1;
         case presspng::UserFormat::Png:  return 2;
         case presspng::UserFormat::Qoi:  return 3;
+        case presspng::UserFormat::Ppm:  return 4;
         case presspng::UserFormat::Keep: return 0;
     }
     return 0;
@@ -228,7 +230,7 @@ QWidget* MainWindow::buildSettingsPanel() {
 
     formatCombo_ = new QComboBox;
     formatCombo_->addItems(
-        {tr("Keep format"), tr("JPEG"), tr("PNG"), tr("QOI")});
+        {tr("Keep format"), tr("JPEG"), tr("PNG"), tr("QOI"), tr("PPM")});
     formatCombo_->setToolTip(tr("Output format"));
     layout->addWidget(formatCombo_);
 

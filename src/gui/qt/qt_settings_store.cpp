@@ -13,6 +13,7 @@ int formatToInt(presspng::UserFormat format) {
         case presspng::UserFormat::Jpeg: return 1;
         case presspng::UserFormat::Png:  return 2;
         case presspng::UserFormat::Qoi:  return 3;
+        case presspng::UserFormat::Ppm:  return 4;
         case presspng::UserFormat::Keep: return 0;
     }
     return 0;
@@ -23,6 +24,7 @@ presspng::UserFormat intToFormat(int value) {
         case 1: return presspng::UserFormat::Jpeg;
         case 2: return presspng::UserFormat::Png;
         case 3: return presspng::UserFormat::Qoi;
+        case 4: return presspng::UserFormat::Ppm;
         default: return presspng::UserFormat::Keep;
     }
 }

@@ -84,6 +84,10 @@ AppSettings RegistrySettingsStore::load() const {
         settings.format = UserFormat::Jpeg;
     } else if (format == "png") {
         settings.format = UserFormat::Png;
+    } else if (format == "qoi") {
+        settings.format = UserFormat::Qoi;
+    } else if (format == "ppm") {
+        settings.format = UserFormat::Ppm;
     } else {
         settings.format = UserFormat::Keep;
     }
@@ -108,6 +112,10 @@ void RegistrySettingsStore::save(const AppSettings& settings) const {
         format = "jpeg";
     } else if (settings.format == UserFormat::Png) {
         format = "png";
+    } else if (settings.format == UserFormat::Qoi) {
+        format = "qoi";
+    } else if (settings.format == UserFormat::Ppm) {
+        format = "ppm";
     }
     writeString(key, L"Format", format);
 

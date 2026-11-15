@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdlib>
+#include <string>
 
 #include "lodepng.h"
 #include "presspng/errors.h"
@@ -123,6 +124,34 @@ std::vector<std::uint8_t> QoiCodec::encode(
     const Image& image, const EncodeOptions&) const {
     requirePixels(image);
     return qoi::encode(image);
+}
+
+std::vector<std::uint8_t> PpmCodec::encode(
+    const Image& image, const EncodeOptions&) const {
+    requirePixels(image);
+
+    // Binary PPM (P6): a tiny ASCII header followed by packed RGB triples.
+    // Alpha is dropped because the format has no channel for it.
+    std::string header = "P6\n";
+    header += std::to_string(image.width());
+    header += ' ';
+    header += std::to_string(image.height());
+    header += "\n255\n";
+
+    std::vector<std::uint8_t> out;
+    out.reserve(header.size() +
+                static_cast<std::size_t>(image.width()) * image.height() * 3u);
+    out.insert(out.end(), header.begin(), header.end());
+
+    const std::uint8_t* pixels = image.pixels();
+    const std::size_t count =
+        static_cast<std::size_t>(image.width()) * image.height();
+    for (std::size_t i = 0; i < count; ++i) {
+        out.push_back(pixels[i * 4u + 0u]);
+        out.push_back(pixels[i * 4u + 1u]);
+        out.push_back(pixels[i * 4u + 2u]);
+    }
+    return out;
 }
 
 } // namespace presspng

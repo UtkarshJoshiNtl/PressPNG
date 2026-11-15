@@ -20,6 +20,8 @@ CodecFactory::Selection CodecFactory::create(UserFormat choice,
         resolved = EncodedFormat::Png;
     } else if (choice == UserFormat::Qoi) {
         resolved = EncodedFormat::Qoi;
+    } else if (choice == UserFormat::Ppm) {
+        resolved = EncodedFormat::Ppm;
     } else {
         switch (source) {
             case InputFormat::Jpeg:
@@ -36,6 +38,9 @@ CodecFactory::Selection CodecFactory::create(UserFormat choice,
                 break;
             case InputFormat::Qoi:
                 resolved = EncodedFormat::Qoi;
+                break;
+            case InputFormat::Pnm:
+                resolved = EncodedFormat::Ppm;
                 break;
             default:
                 resolved = EncodedFormat::Png;
@@ -60,6 +65,9 @@ CodecFactory::Selection CodecFactory::create(UserFormat choice,
             break;
         case EncodedFormat::Qoi:
             selection.codec = std::make_unique<QoiCodec>();
+            break;
+        case EncodedFormat::Ppm:
+            selection.codec = std::make_unique<PpmCodec>();
             break;
     }
 

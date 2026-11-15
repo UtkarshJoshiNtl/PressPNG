@@ -22,7 +22,7 @@ void printUsage() {
         "\n"
         "Options:\n"
         "  -s, --size <N>[KB|MB]   target file size (default unit: KB)\n"
-        "  -f, --format <fmt>      keep | jpeg | png | qoi   (default: keep)\n"
+        "  -f, --format <fmt>      keep | jpeg | png | qoi | ppm   (default: keep)\n"
         "  -o, --output <dir>      output directory (default: next to input)\n"
         "      --resize <WxH>      cap output dimensions (never upscales)\n"
         "      --crop <x,y,w,h>    crop as fractions of the image (0..1)\n"
@@ -202,6 +202,8 @@ int main(int argc, char** argv) {
         format = presspng::UserFormat::Png;
     } else if (formatText == "qoi") {
         format = presspng::UserFormat::Qoi;
+    } else if (formatText == "ppm") {
+        format = presspng::UserFormat::Ppm;
     } else if (formatText != "keep") {
         std::cerr << "error: unknown format " << formatText << "\n";
         return 1;
@@ -238,6 +240,7 @@ int main(int argc, char** argv) {
             case presspng::EncodedFormat::Bmp:  formatName = "BMP";  break;
             case presspng::EncodedFormat::Tga:  formatName = "TGA";  break;
             case presspng::EncodedFormat::Qoi:  formatName = "QOI";  break;
+            case presspng::EncodedFormat::Ppm:  formatName = "PPM";  break;
         }
         if (inputs.size() == 1) {
             std::cout << "input:   " << result.inputPath.string() << " ("

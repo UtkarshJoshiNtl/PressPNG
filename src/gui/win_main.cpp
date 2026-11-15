@@ -402,6 +402,7 @@ void startCompression(AppState* state) {
     if (fi == 1) fmt = presspng::UserFormat::Jpeg;
     else if (fi == 2) fmt = presspng::UserFormat::Png;
     else if (fi == 3) fmt = presspng::UserFormat::Qoi;
+    else if (fi == 4) fmt = presspng::UserFormat::Ppm;
 
     std::wstring destinationText = windowText(state->outputEdit);
     if (!destinationText.empty()) {
@@ -409,6 +410,7 @@ void startCompression(AppState* state) {
         if (fmt == presspng::UserFormat::Jpeg) destination.replace_extension(L".jpg");
         else if (fmt == presspng::UserFormat::Png) destination.replace_extension(L".png");
         else if (fmt == presspng::UserFormat::Qoi) destination.replace_extension(L".qoi");
+        else if (fmt == presspng::UserFormat::Ppm) destination.replace_extension(L".ppm");
         destinationText = destination.wstring();
         setText(state->outputEdit, destinationText);
     }
@@ -567,7 +569,8 @@ LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
             SendMessageW(state->formatCombo, CB_ADDSTRING, 0, (LPARAM)L"JPEG");
             SendMessageW(state->formatCombo, CB_ADDSTRING, 0, (LPARAM)L"PNG");
             SendMessageW(state->formatCombo, CB_ADDSTRING, 0, (LPARAM)L"QOI");
-            int fsel = 0; if(state->appSettings.format==presspng::UserFormat::Jpeg)fsel=1; else if(state->appSettings.format==presspng::UserFormat::Png)fsel=2; else if(state->appSettings.format==presspng::UserFormat::Qoi)fsel=3; SendMessageW(state->formatCombo, CB_SETCURSEL, fsel, 0);
+            SendMessageW(state->formatCombo, CB_ADDSTRING, 0, (LPARAM)L"PPM");
+            int fsel = 0; if(state->appSettings.format==presspng::UserFormat::Jpeg)fsel=1; else if(state->appSettings.format==presspng::UserFormat::Png)fsel=2; else if(state->appSettings.format==presspng::UserFormat::Qoi)fsel=3; else if(state->appSettings.format==presspng::UserFormat::Ppm)fsel=4; SendMessageW(state->formatCombo, CB_SETCURSEL, fsel, 0);
             makeControl(window, 0, L"STATIC", L"Preview:", SS_LEFT, 324, y+4, 56, 16, 0);
             state->previewMode = makeControl(window, 0, L"COMBOBOX", L"", WS_TABSTOP|CBS_DROPDOWNLIST, 384, y, 140, 140, kIdPreviewMode);
             SendMessageW(state->previewMode, CB_ADDSTRING, 0, (LPARAM)L"Source image");
@@ -786,7 +789,7 @@ LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
                 if (!path.empty() && !size.empty() && std::wcstoull(size.c_str(), nullptr, 10) > 0 && !state->busy) {
                     int fi = static_cast<int>(SendMessageW(state->formatCombo, CB_GETCURSEL, 0, 0));
-                    auto fmt = fi == 1 ? presspng::UserFormat::Jpeg : fi == 2 ? presspng::UserFormat::Png : fi == 3 ? presspng::UserFormat::Qoi : presspng::UserFormat::Keep;
+                    auto fmt = fi == 1 ? presspng::UserFormat::Jpeg : fi == 2 ? presspng::UserFormat::Png : fi == 3 ? presspng::UserFormat::Qoi : fi == 4 ? presspng::UserFormat::Ppm : presspng::UserFormat::Keep;
                     const auto gen = ++state->previewGen;
                     state->compGen = gen;
                     requestPreview(state, state->paneComp, fs::path(path), gen, 16384, 16384, true,
@@ -847,7 +850,7 @@ LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         case WM_CLOSE:
             if (state && state->busy) { state->closeWhenDone = true; SetWindowTextW(state->status, L"Cancelling before close…"); state->cancelToken.cancel(); return 0; }
-            if (state && state->settings) { const auto imagePath = fs::path(windowText(state->pathEdit)); if (!imagePath.empty()) state->appSettings.lastDirectory = imagePath.parent_path().u8string(); state->appSettings.targetSizeText = wideToUtf8(windowText(state->sizeEdit)); int fsel=static_cast<int>(SendMessageW(state->formatCombo,CB_GETCURSEL,0,0)); if(fsel==1)state->appSettings.format=presspng::UserFormat::Jpeg; else if(fsel==2)state->appSettings.format=presspng::UserFormat::Png; else if(fsel==3)state->appSettings.format=presspng::UserFormat::Qoi; else state->appSettings.format=presspng::UserFormat::Keep; state->settings->save(state->appSettings); }
+            if (state && state->settings) { const auto imagePath = fs::path(windowText(state->pathEdit)); if (!imagePath.empty()) state->appSettings.lastDirectory = imagePath.parent_path().u8string(); state->appSettings.targetSizeText = wideToUtf8(windowText(state->sizeEdit)); int fsel=static_cast<int>(SendMessageW(state->formatCombo,CB_GETCURSEL,0,0)); if(fsel==1)state->appSettings.format=presspng::UserFormat::Jpeg; else if(fsel==2)state->appSettings.format=presspng::UserFormat::Png; else if(fsel==3)state->appSettings.format=presspng::UserFormat::Qoi; else if(fsel==4)state->appSettings.format=presspng::UserFormat::Ppm; else state->appSettings.format=presspng::UserFormat::Keep; state->settings->save(state->appSettings); }
             DestroyWindow(window);
             return 0;
         case WM_DESTROY:

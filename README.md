@@ -50,8 +50,8 @@ directly).
 1. Choose an image with *Open*, drag it onto the window, or paste from the
    clipboard with **Ctrl+V**.
 2. The left panel holds the parameters:
-   - **Output** — format (keep / JPEG / PNG / QOI) and the maximum size in KB
-     (1 KB = 1000 bytes).
+   - **Output** — format (keep / JPEG / PNG / QOI / PPM) and the maximum size
+     in KB (1 KB = 1000 bytes).
    - **Size** — explicit output width × height with an aspect-ratio lock. The
      values are a per-axis ceiling: they never upscale, and leaving them at
      the natural size preserves the original (and the fast copy path).
@@ -80,7 +80,7 @@ overwritten.
 presspng-cli <image> [options]
 
   -s, --size <N>[KB|MB]   target file size (default unit: KB)
-  -f, --format <fmt>      keep | jpeg | png | qoi   (default: keep)
+  -f, --format <fmt>      keep | jpeg | png | qoi | ppm   (default: keep)
   -o, --output <dir>      output directory (default: next to input)
       --resize <WxH>      cap output dimensions (never upscales)
       --crop <x,y,w,h>    crop as fractions of the image (0..1)
@@ -163,10 +163,14 @@ classDiagram
     class PngCodec
     class BmpCodec
     class TgaCodec
+    class QoiCodec
+    class PpmCodec
     IImageCodec <|.. JpegCodec
     IImageCodec <|.. PngCodec
     IImageCodec <|.. BmpCodec
     IImageCodec <|.. TgaCodec
+    IImageCodec <|.. QoiCodec
+    IImageCodec <|.. PpmCodec
 
     class CodecFactory {
         +create(choice, source) Selection
@@ -240,9 +244,10 @@ Key principles used throughout:
 - **Abstraction / polymorphism** — `IImageCodec` and `ISizeSolver` are
   abstract interfaces; the facade never knows which concrete format or
   search strategy it is running.
-- **Open for extension** — a new output format (e.g. WebP) means one new
-  `IImageCodec` subclass plus one `CodecFactory` line; a new search
-  strategy means one new `ISizeSolver` subclass passed to `Compressor`.
+- **Open for extension** — a new output format means one new
+  `IImageCodec` subclass plus one `CodecFactory` line (that is exactly how
+  PPM was added); a new search strategy means one new `ISizeSolver` subclass
+  passed to `Compressor`.
 - **Single source of truth** — the Qt GUI and the CLI both drive the same
   `Compressor`; `compress()` and `estimate()` share one pipeline, so the
   preview can never disagree with the written file.
@@ -255,7 +260,7 @@ Key principles used throughout:
 | Direction | Formats |
 |-----------|---------|
 | Read (input) | PNG, JPEG, BMP, TGA, GIF, HDR, PSD, PNM (via `stb_image`) |
-| Write (output) | keep original for PNG/JPEG/BMP/TGA/QOI, otherwise PNG; forced JPEG, PNG, or QOI on request |
+| Write (output) | keep original for PNG/JPEG/BMP/TGA/QOI/PPM, otherwise PNG; forced JPEG, PNG, QOI, or PPM on request |
 
 ## Limitations (on purpose, for scope)
 

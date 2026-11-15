@@ -8,10 +8,10 @@
 namespace presspng {
 
 // Formats we are able to write.
-enum class EncodedFormat { Jpeg, Png, Bmp, Tga, Qoi };
+enum class EncodedFormat { Jpeg, Png, Bmp, Tga, Qoi, Ppm };
 
 // What the user selected in the UI.
-enum class UserFormat { Keep, Jpeg, Png, Qoi };
+enum class UserFormat { Keep, Jpeg, Png, Qoi, Ppm };
 
 // Formats stb_image is able to read (sniffed from magic bytes).
 enum class InputFormat { Jpeg, Png, Bmp, Tga, Gif, Hdr, Psd, Pnm, Qoi, Unknown };

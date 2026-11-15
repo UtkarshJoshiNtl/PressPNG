@@ -172,6 +172,35 @@ static void testJpegRoundTrip() {
     CHECK(meanError < 12.0);
 }
 
+static void testPpmRoundTrip() {
+    const Image source = makeTestImage(48, 32);
+    const PpmCodec codec;
+    CHECK(codec.hasQualityKnob() == false);
+
+    const auto encoded = codec.encode(source, EncodeOptions{});
+    CHECK(!encoded.empty());
+    // Binary PPM magic + header.
+    CHECK(encoded.size() > 2 && encoded[0] == 'P' && encoded[1] == '6');
+
+    const Image decoded = ImageLoader::decode(encoded);
+    CHECK(decoded.width() == source.width());
+    CHECK(decoded.height() == source.height());
+
+    // PPM is lossless but has no alpha channel, so compare RGB only.
+    bool identical = true;
+    for (int y = 0; y < source.height() && identical; ++y) {
+        for (int x = 0; x < source.width(); ++x) {
+            const auto a = source.pixel(x, y);
+            const auto b = decoded.pixel(x, y);
+            if (a[0] != b[0] || a[1] != b[1] || a[2] != b[2]) {
+                identical = false;
+                break;
+            }
+        }
+    }
+    CHECK(identical);
+}
+
 static void testCodecFactory() {
     auto keepGif = CodecFactory::create(UserFormat::Keep, InputFormat::Gif);
     CHECK(keepGif.resolved == EncodedFormat::Png);
@@ -187,6 +216,14 @@ static void testCodecFactory() {
 
     auto keepBmp = CodecFactory::create(UserFormat::Keep, InputFormat::Bmp);
     CHECK(keepBmp.resolved == EncodedFormat::Bmp);
+
+    auto forcePpm = CodecFactory::create(UserFormat::Ppm, InputFormat::Png);
+    CHECK(forcePpm.resolved == EncodedFormat::Ppm);
+    CHECK(forcePpm.codec != nullptr);
+
+    auto keepPnm = CodecFactory::create(UserFormat::Keep, InputFormat::Pnm);
+    CHECK(keepPnm.resolved == EncodedFormat::Ppm);
+    CHECK(!keepPnm.fellBack);
 }
 
 static void testSolverDirectJpeg() {
@@ -612,6 +649,7 @@ int main() {
     testSniff();
     testPngRoundTrip();
     testJpegRoundTrip();
+    testPpmRoundTrip();
     testCodecFactory();
     testSolverDirectJpeg();
     testCompressEndToEnd();

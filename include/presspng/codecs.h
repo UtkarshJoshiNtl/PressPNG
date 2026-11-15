@@ -54,4 +54,16 @@ public:
                                      const EncodeOptions& options) const override;
 };
 
+// Netpbm PPM (binary P6). Lossless, uncompressed, no dependency: the format
+// exists to prove how cheaply a new IImageCodec plugs into the pipeline.
+class PpmCodec final : public IImageCodec {
+public:
+    EncodedFormat format() const override { return EncodedFormat::Ppm; }
+    const char* formatName() const override { return "PPM"; }
+    const char* extension() const override { return ".ppm"; }
+    bool hasQualityKnob() const override { return false; }
+    std::vector<std::uint8_t> encode(const Image& image,
+                                     const EncodeOptions& options) const override;
+};
+
 } // namespace presspng

@@ -32,6 +32,8 @@ EncodedFormat mappedFormat(InputFormat input) {
             return EncodedFormat::Tga;
         case InputFormat::Qoi:
             return EncodedFormat::Qoi;
+        case InputFormat::Pnm:
+            return EncodedFormat::Ppm;
         default:
             return EncodedFormat::Png;
     }
